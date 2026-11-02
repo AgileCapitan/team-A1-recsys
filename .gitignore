@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# MLflow local
+mlruns/
+
+# Data (gere par DVC plus tard)
+/data/raw
+/data/interim
+/data/processed
+
+# OS / editeur
+.DS_Store
+.vscode/
