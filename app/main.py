@@ -17,10 +17,15 @@ st.set_page_config(
 )
 
 st.title("🎬 Movie Recommendation System")
-st.caption("AI-powered personalized movie recommendations")
+st.caption("AI-powered personalized movie recommendations • 🚀 Auto-Deployed via GitHub Actions")
+st.success("✨ Live Deployment Verified: CI/CD Pipeline Operational on Oracle Cloud VM!")
 
 # Sidebar: Configuration and Service Status
 with st.sidebar:
+    st.header("🚀 CI/CD Status")
+    st.info("Environment: **Oracle Cloud Production**\n\nDeployment: **Automated via GitHub Actions**")
+    
+    st.markdown("---")
     st.header("⚙️ Settings")
     api_url = st.text_input("Backend API URL", value=BACKEND_URL)
     
