@@ -24,8 +24,10 @@ st.success("✨ Live Deployment Verified: CI/CD Pipeline Operational on Oracle C
 # Sidebar: Configuration and Service Status
 with st.sidebar:
     st.header("🚀 CI/CD Status")
-    st.info("Environment: **Oracle Cloud Production**\n\nDeployment: **Automated via GitHub Actions**")
-    
+    st.info(
+        "Environment: **Oracle Cloud Production**\n\nDeployment: **Automated via GitHub Actions**"
+    )
+
     st.markdown("---")
     st.header("⚙️ Settings")
     api_url = st.text_input("Backend API URL", value=BACKEND_URL)
