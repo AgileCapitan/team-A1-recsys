@@ -1,11 +1,11 @@
-from fastapi import FastAPI, Depends, Path as FastPath, Query, status
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, Query, status
+from fastapi import Path as FastPath
 
 from api.schemas import (
+    HealthResponse,
+    MovieRecommendation,
     RecommendationRequest,
     RecommendationResponse,
-    MovieRecommendation,
-    HealthResponse,
 )
 from src.serving.predictor import BasePredictor, FallbackRecommender
 
@@ -77,7 +77,9 @@ def recommend(
     status_code=status.HTTP_200_OK,
 )
 def recommend_get(
-    user_id: int = FastPath(..., gt=0, description="The user ID requesting recommendations (positive integer)"),
+    user_id: int = FastPath(
+        ..., gt=0, description="The user ID requesting recommendations (positive integer)"
+    ),
     top_k: int = Query(10, ge=1, le=100, description="Number of recommendations to return (1-100)"),
     predictor: BasePredictor = Depends(get_predictor),
 ):

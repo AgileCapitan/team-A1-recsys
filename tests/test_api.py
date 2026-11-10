@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+
 from api.main import app, get_predictor
 from src.serving.predictor import BasePredictor
 
@@ -78,7 +79,9 @@ def test_recommend_get_valid_request():
         ({"user_id": 1, "top_k": "invalid"}, "top_k"),  # top_k invalid type
     ],
 )
-def test_recommend_invalid_requests_produce_meaningful_errors(invalid_payload, expected_error_field):
+def test_recommend_invalid_requests_produce_meaningful_errors(
+    invalid_payload, expected_error_field
+):
     """Verify meaningful error responses for invalid inputs (Acceptance Criteria 3)."""
     response = client.post("/recommend", json=invalid_payload)
     assert response.status_code == 422  # Unprocessable Entity

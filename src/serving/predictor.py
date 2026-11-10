@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import Any
 
 
 class BasePredictor(ABC):
     """Abstract base class for recommendation predictors."""
 
     @abstractmethod
-    def predict(self, user_id: int, top_k: int = 10) -> List[Dict[str, Any]]:
+    def predict(self, user_id: int, top_k: int = 10) -> list[dict[str, Any]]:
         """Return top-k recommendations for a given user."""
         pass
 
@@ -33,6 +33,6 @@ class FallbackRecommender(BasePredictor):
     def __init__(self, model_version: str = "fallback-v0.1"):
         self.model_version = model_version
 
-    def predict(self, user_id: int, top_k: int = 10) -> List[Dict[str, Any]]:
+    def predict(self, user_id: int, top_k: int = 10) -> list[dict[str, Any]]:
         # Return popular items up to top_k
         return self.POPULAR_MOVIES[:top_k]

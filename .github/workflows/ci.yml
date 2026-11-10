@@ -1,0 +1,59 @@
+name: CI Quality Gates
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Code Quality (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff>=0.3.0"
+
+      - name: Check Formatting (Ruff Format)
+        run: |
+          ruff format --check .
+
+      - name: Lint Code (Ruff Check)
+        run: |
+          ruff check .
+
+  test:
+    name: Automated Tests (Pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Test Suite
+        run: |
+          pytest
