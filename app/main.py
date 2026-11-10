@@ -4,8 +4,9 @@ Connects to the FastAPI recommendation backend service.
 """
 
 import os
-import streamlit as st
+
 import requests
+import streamlit as st
 
 # Backend API URL configuration (can be overridden via environment variable)
 BACKEND_URL = os.getenv("API_URL", "http://localhost:8000")
@@ -23,12 +24,14 @@ st.success("✨ Live Deployment Verified: CI/CD Pipeline Operational on Oracle C
 # Sidebar: Configuration and Service Status
 with st.sidebar:
     st.header("🚀 CI/CD Status")
-    st.info("Environment: **Oracle Cloud Production**\n\nDeployment: **Automated via GitHub Actions**")
-    
+    st.info(
+        "Environment: **Oracle Cloud Production**\n\nDeployment: **Automated via GitHub Actions**"
+    )
+
     st.markdown("---")
     st.header("⚙️ Settings")
     api_url = st.text_input("Backend API URL", value=BACKEND_URL)
-    
+
     st.markdown("---")
     st.header("🔌 Service Health")
     try:
@@ -39,7 +42,7 @@ with st.sidebar:
             st.caption(f"Model Version: `{health_data.get('model_version', 'unknown')}`")
         else:
             st.warning(f"Backend responded with status {health_resp.status_code}")
-    except Exception as e:
+    except Exception:
         st.error("Backend: Disconnected")
         st.caption(f"Could not reach {api_url}")
 
@@ -56,7 +59,7 @@ with col_input:
         step=1,
         help="Enter the numeric user ID for personalized recommendations",
     )
-    
+
     top_k = st.slider(
         "Number of recommendations",
         min_value=1,
@@ -64,15 +67,26 @@ with col_input:
         value=5,
         step=1,
     )
-    
+
     # Genre & Mood filters (US7.1 baseline)
     preferred_genres = st.multiselect(
         "Filter by Genre (Optional)",
-        options=["Action", "Adventure", "Animation", "Comedy", "Crime", "Drama", "Sci-Fi", "Thriller"],
+        options=[
+            "Action",
+            "Adventure",
+            "Animation",
+            "Comedy",
+            "Crime",
+            "Drama",
+            "Sci-Fi",
+            "Thriller",
+        ],
         default=[],
     )
-    
-    get_recommendations = st.button("✨ Get Recommendations", type="primary", use_container_width=True)
+
+    get_recommendations = st.button(
+        "✨ Get Recommendations", type="primary", use_container_width=True
+    )
 
 with col_results:
     st.subheader("Recommended Movies")
@@ -82,14 +96,16 @@ with col_results:
                 payload = {"user_id": int(user_id), "top_k": int(top_k)}
                 endpoint = f"{api_url.rstrip('/')}/recommend"
                 response = requests.post(endpoint, json=payload, timeout=5)
-                
+
                 if response.status_code == 200:
                     data = response.json()
                     recommendations = data.get("recommendations", [])
                     model_version = data.get("model_version", "unknown")
-                    
-                    st.success(f"Generated {len(recommendations)} recommendations (Model: `{model_version}`)")
-                    
+
+                    st.success(
+                        f"Generated {len(recommendations)} recommendations (Model: `{model_version}`)"
+                    )
+
                     for idx, movie in enumerate(recommendations, 1):
                         with st.container():
                             st.markdown(
@@ -108,4 +124,6 @@ with col_results:
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}")
     else:
-        st.info("Select your user ID and click **Get Recommendations** to view personalized movie picks.")
+        st.info(
+            "Select your user ID and click **Get Recommendations** to view personalized movie picks."
+        )

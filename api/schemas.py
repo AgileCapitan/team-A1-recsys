@@ -1,4 +1,3 @@
-from typing import List
 from pydantic import BaseModel, Field
 
 
@@ -26,7 +25,7 @@ class MovieRecommendation(BaseModel):
 
 class RecommendationResponse(BaseModel):
     user_id: int = Field(..., description="The user ID for whom recommendations were generated.")
-    recommendations: List[MovieRecommendation] = Field(
+    recommendations: list[MovieRecommendation] = Field(
         ..., description="List of recommended movies ordered by score descending."
     )
     model_version: str = Field(..., description="Identifier/version of the serving model.")
