@@ -15,3 +15,6 @@ mlruns/
 # OS / editeur
 .DS_Store
 .vscode/
+
+# Locally trained model artifacts
+/artifacts/

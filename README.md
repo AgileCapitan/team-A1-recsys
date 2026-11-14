@@ -59,3 +59,33 @@ The backend (FastAPI) and frontend (Streamlit) services can be orchestrated usin
    ```bash
    docker compose down
    ```
+
+## Train and export batch recommendations
+
+```bash
+python -m pip install -r requirements.txt
+
+python -m src.models.batch_recommend train \
+  --data compressed_data.csv.gz \
+  --artifact artifacts/movielens-v1.joblib
+
+python -m src.models.batch_recommend batch \
+  --artifact artifacts/movielens-v1.joblib \
+  --output data/processed/recommendations_popularity.csv \
+  --method popularity --n 10
+
+python -m src.models.batch_recommend batch \
+  --artifact artifacts/movielens-v1.joblib \
+  --output data/processed/recommendations_mf.csv \
+  --method mf --n 10
+```
+
+Each CSV contains `user_id,rank,movie_id,title,score`, with up to N ranked movies
+per user. The export preserves original MovieLens IDs and excludes movies the
+user has already rated. Popularity scores are rating counts. Matrix factorization
+scores are raw predicted scores and may fall outside the 1–5 rating scale.
+
+On the bundled dataset, each export at N=10 contains 60,400 rows for 6,040 users.
+The chronological holdout in `movieRecommender.ipynb` reports NDCG@10 of 0.2144
+for popularity and 0.1394 for matrix factorization. The batch command defaults
+to popularity based on that comparison.

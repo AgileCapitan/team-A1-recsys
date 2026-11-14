@@ -11,3 +11,9 @@ requests>=2.31.0
 # Testing & Code Quality
 pytest>=8.0.0
 ruff>=0.3.0
+
+# Recommender
+numpy>=1.26
+pandas>=2.2
+scipy>=1.12
+joblib>=1.3
