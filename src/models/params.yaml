@@ -1,0 +1,11 @@
+seed: 42
+
+mlflow:
+  experiment_name: movie-recommender
+  tracking_uri: file:./mlruns
+
+model:
+  name: baseline
+  factors: 24
+  epochs: 12
+  regularization: 3.0
