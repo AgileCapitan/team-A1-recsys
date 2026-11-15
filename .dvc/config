@@ -1,0 +1,6 @@
+[core]
+    autostage = true
+    remote = localstore
+    analytics = false
+['remote "localstore"']
+    url = ../../dvc-storage

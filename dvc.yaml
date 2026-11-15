@@ -1,0 +1,35 @@
+# Data preparation pipeline (US3.2). Run with: dvc repro
+# clean -> split (chronological, same rule as the evaluation notebook) -> features (train-fitted)
+# Downstream stages (train / evaluate, US5.2) can depend on data/processed/features.
+stages:
+  clean:
+    cmd: python -m src.data.cleaner --input compressed_data.csv.gz --output data/processed/ratings_clean.csv --report data/processed/cleaning_report.json
+    deps:
+      - compressed_data.csv.gz
+      - src/data/cleaner.py
+    outs:
+      - data/processed/ratings_clean.csv
+    metrics:
+      - data/processed/cleaning_report.json:
+          cache: false
+
+  split:
+    cmd: python -m src.data.split --input data/processed/ratings_clean.csv --output-dir data/processed/split --test-fraction 0.2
+    deps:
+      - data/processed/ratings_clean.csv
+      - src/data/split.py
+    outs:
+      - data/processed/split/train.csv
+      - data/processed/split/test.csv
+    metrics:
+      - data/processed/split/report.json:
+          cache: false
+
+  features:
+    cmd: python -m src.data.features --train data/processed/split/train.csv --test data/processed/split/test.csv --output-dir data/processed/features
+    deps:
+      - data/processed/split/train.csv
+      - data/processed/split/test.csv
+      - src/data/features.py
+    outs:
+      - data/processed/features
