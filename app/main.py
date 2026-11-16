@@ -2,20 +2,19 @@
 Streamlit Frontend Application for Movie Recommendation System (US7.1 & US7.2).
 Connects to the FastAPI recommendation backend service.
 """
+
 from __future__ import annotations
+
 import csv
 import gzip
 import math
+import os
 from collections import Counter
 from pathlib import Path
-import streamlit.components.v1 as components
-
-
-
-import os
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Backend API URL configuration (can be overridden via environment variable)
 BACKEND_URL = os.getenv("API_URL", "http://localhost:8000")
