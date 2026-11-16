@@ -100,3 +100,4 @@ Data schema validation, missing-value checks, demographic–genre analysis, and 
   - **Demographic Segmentation:** Age brackets and gender exhibit distinct genre consumption and rating patterns (e.g., higher `Action`/`Sci-Fi` shares in younger cohorts vs. higher `Drama`/`Romance` shares in older cohorts).
   - **Temporal Stability:** Chronological split comparison shows low rating drift (`PSI < 0.10`) between early and recent interactions.
 - **Batch Output Verification:** Confirms that `data/processed/recommendations_popularity.csv` and `data/processed/recommendations_mf.csv` each contain `60,400` rows (`6,040` users $\times$ `10` items) with zero seen-movie leakage.
+- **Interactive Dashboard View:** Run `streamlit run app/main.py` and scroll to the **Data Profiling & Quality Dashboard (US1)** section to view live dataset metrics, rating/genre charts, PSI drift status, and any exported HTML profile report (`reports/report.html`).
