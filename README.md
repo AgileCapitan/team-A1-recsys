@@ -60,6 +60,52 @@ The backend (FastAPI) and frontend (Streamlit) services can be orchestrated usin
    docker compose down
    ```
 
+## Data preparation pipeline (US3.2, DVC)
+
+The raw dataset `compressed_data.csv.gz` is cleaned, split and turned into
+model-ready feature tables by a three-stage DVC pipeline defined in `dvc.yaml`:
+
+| Stage | Command | Output |
+| :--- | :--- | :--- |
+| `clean` | `python -m src.data.cleaner` | `data/processed/ratings_clean.csv` + `cleaning_report.json` |
+| `split` | `python -m src.data.split` | `data/processed/split/{train,test}.csv` + `report.json` |
+| `features` | `python -m src.data.features` | `data/processed/features/{ratings_train,ratings_test,users,movies}.csv` + `report.json` |
+
+```bash
+python -m pip install -r requirements.txt
+dvc repro          # runs only the stages whose inputs changed
+dvc metrics show   # cleaning report (rows read/written, invalid rows...)
+dvc push           # store outputs in the local remote (../dvc-storage)
+```
+
+**Cleaning** keeps rows with positive user/movie IDs and an integer rating from
+1 to 5, clears malformed or implausible optional integers (e.g. negative or
+future timestamps), trims and normalizes text and genres, removes exact
+duplicates, keeps only the most recent rating when a user re-rates a movie, and
+harmonizes conflicting user/movie metadata with their latest row. The input
+file is never modified.
+
+**Split**: chronological, same rule as the evaluation notebook — the cutoff is
+the timestamp at the 80% quantile; earlier ratings are train, later ones test.
+
+**Features** — every statistic is fitted on **train only** (no test leakage);
+cold-start users/movies get `*_idx = -1` and global-mean fallbacks:
+- `ratings_{train,test}.csv`: contiguous `user_idx`/`movie_idx` (matrix rows for
+  MF), `rating_norm` (0–1), `rating_centered` (minus the train user mean),
+  `rated_year`/`rated_month`/`rated_weekday`, `movie_age_at_rating`, and
+  past-only sequential features `user_rating_rank`, `days_since_user_first_rating`.
+- `users.csv`: rating count/mean/std, `active_days`, `is_female`, one-hot age
+  buckets, occupation, `zip_region` (first ZIP digit), log-normalized activity,
+  and per-genre `share_<genre>` (fraction of the user's ratings) and
+  `affinity_<genre>` (mean rating minus the user's own mean).
+- `movies.csv`: multi-hot `genre_*`, release year (median-imputed with a
+  `release_year_missing` flag), `release_year_norm`, `release_decade`, rating
+  count/mean/std, `bayesian_rating` (mean shrunk toward the global mean),
+  log-normalized popularity.
+
+Outputs are deterministic and ignored by Git (tracked by `dvc.lock`).
+Tests: `pytest tests/test_cleaner.py tests/test_features.py`.
+
 ## Train and export batch recommendations
 
 ```bash

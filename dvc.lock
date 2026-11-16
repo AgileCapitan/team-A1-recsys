@@ -1,0 +1,71 @@
+schema: '2.0'
+stages:
+  clean:
+    cmd: python -m src.data.cleaner --input compressed_data.csv.gz --output 
+      data/processed/ratings_clean.csv --report 
+      data/processed/cleaning_report.json
+    deps:
+    - path: compressed_data.csv.gz
+      hash: md5
+      md5: 6e91e8b74c5d666116c421c046c37bfd
+      size: 19543314
+    - path: src/data/cleaner.py
+      hash: md5
+      md5: 5dcdcb7ed264dfe738b3506599f3e481
+      size: 10579
+    outs:
+    - path: data/processed/cleaning_report.json
+      hash: md5
+      md5: c6923046e2a44091f7e210e08e3b14de
+      size: 639
+    - path: data/processed/ratings_clean.csv
+      hash: md5
+      md5: b44e6563d66287831279fe3b5ae7cda5
+      size: 80515425
+  features:
+    cmd: python -m src.data.features --train data/processed/split/train.csv 
+      --test data/processed/split/test.csv --output-dir data/processed/features
+    deps:
+    - path: data/processed/split/test.csv
+      hash: md5
+      md5: fc337bf44a48e0ce0e2d2256b1793992
+      size: 15915859
+    - path: data/processed/split/train.csv
+      hash: md5
+      md5: b28aaff5dd7881e7b7a0b6acfff46dbb
+      size: 64599667
+    - path: src/data/features.py
+      hash: md5
+      md5: d10f033a1f772c6eceb5c22b94bd5353
+      size: 13688
+    outs:
+    - path: data/processed/features
+      hash: md5
+      md5: 54dbab60b640a1e5c5a70bdb0900e1e1.dir
+      size: 77125387
+      nfiles: 5
+  split:
+    cmd: python -m src.data.split --input data/processed/ratings_clean.csv 
+      --output-dir data/processed/split --test-fraction 0.2
+    deps:
+    - path: data/processed/ratings_clean.csv
+      hash: md5
+      md5: b44e6563d66287831279fe3b5ae7cda5
+      size: 80515425
+    - path: src/data/split.py
+      hash: md5
+      md5: 29244698f5bc4e5f43e01b02d5b5fb6a
+      size: 3026
+    outs:
+    - path: data/processed/split/report.json
+      hash: md5
+      md5: 561c554f096024abbd0293cbf2462151
+      size: 254
+    - path: data/processed/split/test.csv
+      hash: md5
+      md5: fc337bf44a48e0ce0e2d2256b1793992
+      size: 15915859
+    - path: data/processed/split/train.csv
+      hash: md5
+      md5: b28aaff5dd7881e7b7a0b6acfff46dbb
+      size: 64599667
