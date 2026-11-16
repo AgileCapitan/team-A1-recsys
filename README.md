@@ -89,3 +89,14 @@ On the bundled dataset, each export at N=10 contains 60,400 rows for 6,040 users
 The chronological holdout in `movieRecommender.ipynb` reports NDCG@10 of 0.2144
 for popularity and 0.1394 for matrix factorization. The batch command defaults
 to popularity based on that comparison.
+
+## Data Profiling & Exploratory Analysis
+
+Data schema validation, missing-value checks, demographic–genre analysis, and temporal drift monitoring are documented in [`notebooks/dataProfiling.ipynb`](notebooks/dataProfiling.ipynb).
+
+- **Dataset & Structure:** Profiles the MovieLens-1M dataset (`6,040` users, zero duplicate `(user_id, movie_id)` pairs) using the cleaned interim table at `data/interim/movielens_1m_clean.csv` alongside `compressed_data.csv.gz`.
+- **Key Analytical Findings:**
+  - **Rating & Activity Skew:** Ratings skew toward positive scores (`3` and `4`), while user activity and movie popularity follow long-tail distributions.
+  - **Demographic Segmentation:** Age brackets and gender exhibit distinct genre consumption and rating patterns (e.g., higher `Action`/`Sci-Fi` shares in younger cohorts vs. higher `Drama`/`Romance` shares in older cohorts).
+  - **Temporal Stability:** Chronological split comparison shows low rating drift (`PSI < 0.10`) between early and recent interactions.
+- **Batch Output Verification:** Confirms that `data/processed/recommendations_popularity.csv` and `data/processed/recommendations_mf.csv` each contain `60,400` rows (`6,040` users $\times$ `10` items) with zero seen-movie leakage.
