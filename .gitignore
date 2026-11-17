@@ -18,3 +18,5 @@ mlruns/
 
 # Locally trained model artifacts
 /artifacts/
+# Local uncompressed copy of the dataset (use compressed_data.csv.gz)
+/compressed_data.csv
