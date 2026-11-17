@@ -1,4 +1,54 @@
 services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: recsys-rustfs
+    command: ["/data"]
+    ports:
+      - "${RUSTFS_PORT:-9000}:9000"
+      - "${RUSTFS_CONSOLE_PORT:-9001}:9001"
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?RUSTFS_ACCESS_KEY must be set in .env}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:?RUSTFS_SECRET_KEY must be set in .env}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: :9000
+      RUSTFS_CONSOLE_ADDRESS: :9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_REGION: ${RUSTFS_REGION:-us-east-1}
+      RUSTFS_CHECK_UPDATE: "false"
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - recsys-network
+
+  rustfs-init:
+    image: amazon/aws-cli:2.17.10
+    container_name: recsys-rustfs-init
+    environment:
+      AWS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:?RUSTFS_ACCESS_KEY must be set in .env}
+      AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:?RUSTFS_SECRET_KEY must be set in .env}
+      AWS_DEFAULT_REGION: ${RUSTFS_REGION:-us-east-1}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-recsys}
+      RUSTFS_ENDPOINT: http://rustfs:9000
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        aws s3api head-bucket --bucket "$$RUSTFS_BUCKET" --endpoint-url "$$RUSTFS_ENDPOINT"
+        2>/dev/null ||
+        aws s3 mb "s3://$$RUSTFS_BUCKET" --endpoint-url "$$RUSTFS_ENDPOINT"
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - recsys-network
+
   backend:
     build:
       context: .
@@ -10,6 +60,11 @@ services:
     environment:
       - PORT=8000
       - PYTHONUNBUFFERED=1
+      - RUSTFS_ENDPOINT=http://rustfs:9000
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:?RUSTFS_ACCESS_KEY must be set in .env}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:?RUSTFS_SECRET_KEY must be set in .env}
+      - RUSTFS_BUCKET=${RUSTFS_BUCKET:-recsys}
+      - RUSTFS_REGION=${RUSTFS_REGION:-us-east-1}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -48,3 +103,6 @@ services:
 networks:
   recsys-network:
     driver: bridge
+
+volumes:
+  rustfs-data:
