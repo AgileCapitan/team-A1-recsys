@@ -14,7 +14,7 @@ from src.models.recommender import MatrixFactorization, rating_history, recommen
 
 
 def load_training_data(data_path):
-    """Load ratings from a local CSV or an S3-compatible RustFS object."""
+    """Load ratings from a local CSV or an S3-compatible B2 object."""
     data_uri = str(data_path)
     if not data_uri.startswith("s3://"):
         return pd.read_csv(data_uri, usecols=["user_id", "movie_id", "rating", "title"])
@@ -23,22 +23,27 @@ def load_training_data(data_path):
     if not parsed.netloc or not parsed.path.strip("/"):
         raise ValueError("S3 training data must use the form s3://bucket/object.csv")
 
-    access_key = os.getenv("RUSTFS_ACCESS_KEY")
-    secret_key = os.getenv("RUSTFS_SECRET_KEY")
+    access_key = os.getenv("B2_KEY_ID")
+    secret_key = os.getenv("B2_APPLICATION_KEY")
     if not access_key or not secret_key:
-        raise ValueError("RUSTFS_ACCESS_KEY and RUSTFS_SECRET_KEY are required for S3 input")
+        raise ValueError("B2_KEY_ID and B2_APPLICATION_KEY are required for S3 input")
 
     import boto3
 
+    endpoint = os.getenv("B2_ENDPOINT")
+    region = os.getenv("B2_REGION")
+    if not endpoint or not region:
+        raise ValueError("B2_ENDPOINT and B2_REGION are required for S3 input")
+
     client = boto3.client(
         "s3",
-        endpoint_url=os.getenv("RUSTFS_ENDPOINT", "http://localhost:9000"),
+        endpoint_url=endpoint,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
-        region_name=os.getenv("RUSTFS_REGION", "us-east-1"),
+        region_name=region,
         config=boto3.session.Config(
             signature_version="s3v4",
-            s3={"addressing_style": os.getenv("RUSTFS_ADDRESSING_STYLE", "path")},
+            s3={"addressing_style": "path"},
         ),
     )
     response = client.get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))
@@ -129,7 +134,7 @@ def main():
     train.add_argument(
         "--data",
         required=True,
-        help="Local CSV path or s3://bucket/object.csv RustFS URI.",
+        help="Local CSV path or s3://bucket/object.csv B2 URI.",
     )
     train.add_argument("--artifact", type=Path, required=True)
 

@@ -1,0 +1,23 @@
+name: Check B2 Access
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: List private B2 bucket
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.B2_REGION }}
+      B2_ENDPOINT: ${{ vars.B2_ENDPOINT }}
+      B2_BUCKET: ${{ vars.B2_BUCKET }}
+    steps:
+      - name: Check bucket access without listing objects
+        run: |
+          aws s3api list-objects-v2 \
+            --bucket "$B2_BUCKET" \
+            --max-keys 0 \
+            --endpoint-url "$B2_ENDPOINT" \
+            >/dev/null
