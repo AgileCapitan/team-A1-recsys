@@ -136,6 +136,19 @@ The chronological holdout in `movieRecommender.ipynb` reports NDCG@10 of 0.2144
 for popularity and 0.1394 for matrix factorization. The batch command defaults
 to popularity based on that comparison.
 
+## Model configuration
+
+Model parameters are stored in `src/models/params.yaml`. After installing the
+dependencies in `requirements.txt`, configure local MLflow tracking with:
+
+```python
+from src.models.mlflow_config import configure_mlflow
+
+configure_mlflow()
+```
+
+This uses the repository-level `mlruns/` directory and the
+`movie-recommender` experiment.
 ## Data Profiling & Exploratory Analysis
 
 Data schema validation, missing-value checks, demographic–genre analysis, and temporal drift monitoring are documented in [`notebooks/dataProfiling.ipynb`](notebooks/dataProfiling.ipynb).
