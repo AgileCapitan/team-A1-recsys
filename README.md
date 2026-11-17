@@ -60,60 +60,52 @@ The backend (FastAPI) and frontend (Streamlit) services can be orchestrated usin
    docker compose down
    ```
 
-### RustFS object storage
+### Backblaze B2 object storage
 
-The Compose stack includes RustFS, an S3-compatible object store for processed
-training data. Copy the example environment file before starting the stack so
-credentials are supplied externally:
+Backblaze B2 is the shared S3-compatible object store. FastAPI and Streamlit
+remain on the Oracle VM; the Compose stack does not run an object-storage
+service. Copy the example environment file for local configuration:
 
 ```bash
 cp .env.example .env
 docker compose up -d
 ```
 
-RustFS is available at `http://localhost:9000` (console:
-`http://localhost:9001`). The `rustfs-init` service creates the `${RUSTFS_BUCKET}`
-bucket idempotently. Objects are stored under these versioned keys:
+Shared objects use these prefixes:
 
 | Object | Key |
 | :--- | :--- |
+| Fixtures | `test/noe/` |
+| Raw MovieLens files | `raw/movielens-1m/` |
 | Ratings CSV | `processed/movielens-1m/v1/ratings.csv` |
 | Manifest | `processed/movielens-1m/v1/manifest.json` |
+| Model artifacts | `models/` |
 
 The CSV schema is `user_id,movie_id,rating,title`; the manifest records the
 object key, SHA-256 checksum, byte size, row count, and schema. Publish the
 manifest last so consumers never treat an incomplete upload as a release.
 
-Run training directly from RustFS with:
+GitHub Actions has the manually triggered **Check B2 Access** workflow. It uses
+the repository's configured B2 secrets and variables to perform a read-only
+bucket check, so teammates can verify access without personal keys. It does
+not publish data or run training.
+
+Run training directly from B2 on a laptop with:
 
 ```bash
 python -m src.models.batch_recommend train \
-  --data s3://recsys/processed/movielens-1m/v1/ratings.csv \
+  --data "s3://${B2_BUCKET}/processed/movielens-1m/v1/ratings.csv" \
   --artifact artifacts/movielens-v1.joblib
 ```
 
-For a host-side training run, set `RUSTFS_ENDPOINT=http://localhost:9000`,
-`RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY`, and `RUSTFS_REGION` in `.env` or the
-shell environment. The local `--data compressed_data.csv.gz` path remains
-supported.
+Laptop training requires local `B2_ENDPOINT`, `B2_REGION`, `B2_KEY_ID`, and
+`B2_APPLICATION_KEY` credentials. The local `--data compressed_data.csv.gz`
+path remains supported. Publishing and training through GitHub need separate
+workflow steps with explicitly scoped B2 permissions; the access-check workflow
+is intentionally read-only.
 
-To verify persistence, upload a small object, restart only RustFS, and read it
-back:
-
-```bash
-docker compose run --rm --entrypoint /bin/sh rustfs-init -c \
-  'printf persistence-check > /tmp/persistence-check.txt &&
-   aws s3 cp /tmp/persistence-check.txt
-   s3://$RUSTFS_BUCKET/persistence-check.txt --endpoint-url "$RUSTFS_ENDPOINT"'
-docker compose restart rustfs
-docker compose run --rm --entrypoint /bin/sh rustfs-init -c \
-  'aws s3 cp s3://$RUSTFS_BUCKET/persistence-check.txt -
-   --endpoint-url "$RUSTFS_ENDPOINT"'
-```
-
-The named `rustfs-data` volume is intentionally not removed by
-`docker compose down`; use `docker compose down -v` only when resetting local
-object storage.
+The legacy `rustfs-data` named volume is retained in Compose for data
+preservation during the cutover, but RustFS is no longer deployed or used.
 
 ## Data preparation pipeline (US3.2, DVC)
 

@@ -37,16 +37,12 @@ jobs:
     steps:
       - name: Deploy application via SSH
         uses: appleboy/ssh-action@v1.2.0
-        env:
-          RUSTFS_ACCESS_KEY: ${{ secrets.RUSTFS_ACCESS_KEY }}
-          RUSTFS_SECRET_KEY: ${{ secrets.RUSTFS_SECRET_KEY }}
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           port: 22
           script_stop: true
-          envs: RUSTFS_ACCESS_KEY,RUSTFS_SECRET_KEY
           script: |
             echo "Navigating to repository directory..."
             cd ~/team-A1-recsys || cd team-A1-recsys

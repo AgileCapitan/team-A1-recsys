@@ -59,11 +59,8 @@ jobs:
           pytest
 
   compose:
-    name: RustFS Compose Configuration
+    name: Docker Compose Configuration
     runs-on: ubuntu-latest
-    env:
-      RUSTFS_ACCESS_KEY: ci-access
-      RUSTFS_SECRET_KEY: ci-secret
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

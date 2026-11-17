@@ -7,32 +7,34 @@ import pytest
 from src.models.batch_recommend import load_training_data, train_and_save, write_recommendations
 
 
-def test_load_training_data_from_rustfs(monkeypatch):
+def test_load_training_data_from_b2(monkeypatch):
     body = Mock()
     body.read.return_value = b"user_id,movie_id,rating,title\n1,10,5,Ten\n"
     client = Mock()
     client.get_object.return_value = {"Body": body}
-    monkeypatch.setenv("RUSTFS_ACCESS_KEY", "access")
-    monkeypatch.setenv("RUSTFS_SECRET_KEY", "secret")
+    monkeypatch.setenv("B2_KEY_ID", "access")
+    monkeypatch.setenv("B2_APPLICATION_KEY", "secret")
+    monkeypatch.setenv("B2_ENDPOINT", "https://s3.us-east-005.backblazeb2.com")
+    monkeypatch.setenv("B2_REGION", "us-east-005")
 
     with patch("boto3.client", return_value=client) as create_client:
-        ratings = load_training_data("s3://recsys/processed/movielens-1m/v1/ratings.csv")
+        ratings = load_training_data("s3://b2-private/processed/movielens-1m/v1/ratings.csv")
 
     create_client.assert_called_once()
     client.get_object.assert_called_once_with(
-        Bucket="recsys", Key="processed/movielens-1m/v1/ratings.csv"
+        Bucket="b2-private", Key="processed/movielens-1m/v1/ratings.csv"
     )
     assert ratings.to_dict("records") == [
         {"user_id": 1, "movie_id": 10, "rating": 5, "title": "Ten"}
     ]
 
 
-def test_load_training_data_requires_rustfs_credentials(monkeypatch):
-    monkeypatch.delenv("RUSTFS_ACCESS_KEY", raising=False)
-    monkeypatch.delenv("RUSTFS_SECRET_KEY", raising=False)
+def test_load_training_data_requires_b2_credentials(monkeypatch):
+    monkeypatch.delenv("B2_KEY_ID", raising=False)
+    monkeypatch.delenv("B2_APPLICATION_KEY", raising=False)
 
-    with pytest.raises(ValueError, match="RUSTFS_ACCESS_KEY"):
-        load_training_data("s3://recsys/ratings.csv")
+    with pytest.raises(ValueError, match="B2_KEY_ID"):
+        load_training_data("s3://b2-private/ratings.csv")
 
 
 def test_saved_model_generates_ranked_unseen_movies(tmp_path):
