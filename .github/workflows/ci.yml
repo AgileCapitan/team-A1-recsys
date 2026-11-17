@@ -57,3 +57,16 @@ jobs:
       - name: Run Test Suite
         run: |
           pytest
+
+  compose:
+    name: RustFS Compose Configuration
+    runs-on: ubuntu-latest
+    env:
+      RUSTFS_ACCESS_KEY: ci-access
+      RUSTFS_SECRET_KEY: ci-secret
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
