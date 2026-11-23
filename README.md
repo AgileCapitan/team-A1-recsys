@@ -149,6 +149,35 @@ already holds a release: changed output goes to a new prefix such as
 The tests in `tests/test_prepare_movielens.py` use an in-memory S3 client and
 need no credentials.
 
+### Staging serving artifacts to Oracle VM (US6.1-T3)
+
+Versioned model artifacts are stored in B2 under `models/` and staged onto the
+Oracle VM by GitHub Actions (`.github/workflows/deploy.yml`). The FastAPI
+container reads only local files mounted read-only from `./artifacts` into
+`/app/artifacts/` — B2 credentials never live on the VM.
+
+1. Upload a validated model bundle (and optional catalog) to an immutable B2 key:
+
+   ```bash
+   python -m src.serving.stage_artifacts upload \
+     --model artifacts/movielens-v1.joblib \
+     --model-key models/movielens-v1/movielens-v1.joblib \
+     --catalog artifacts/movie-catalog.csv \
+     --catalog-key models/movielens-v1/movie-catalog.csv
+   ```
+
+2. Configure repository variables (`SERVING_MODEL_KEY`, optional
+   `SERVING_CATALOG_KEY` defaulting to `processed/movielens-1m/v1/movies.csv`,
+   optional `SERVING_MODEL_VERSION`, optional `SERVING_MLFLOW_RUN_ID`) or pass
+   the equivalent inputs when running **Deploy to Cloud VM** via
+   `workflow_dispatch`.
+3. During deployment, the runner downloads and validates the files with
+   `python -m src.serving.stage_artifacts validate`, writes `staged-version.json`
+   with SHA-256 digests and version metadata, transfers them to the VM over SSH,
+   atomically promotes them into `~/team-A1-recsys/artifacts/`, restarts Docker
+   Compose, and verifies `/health` reports `artifact_loaded: true` and
+   `using_fallback: false`.
+
 ## Data preparation pipeline (US3.2, DVC)
 
 The raw dataset `compressed_data.csv.gz` is cleaned, split and turned into
