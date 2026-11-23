@@ -1,0 +1,47 @@
+name: Verify B2 dataset PR 94
+on:
+  push:
+    branches: [codex/verify-b2-pr94]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      B2_ENDPOINT: ${{ vars.B2_ENDPOINT }}
+      B2_REGION: ${{ vars.B2_REGION }}
+      B2_BUCKET: ${{ vars.B2_BUCKET }}
+      B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: pip install 'pandas>=2.2' 'boto3>=1.34'
+      - name: Verify manifest, source files, and published CSVs
+        run: |
+          python - <<'PY'
+          import json
+          from src.data.prepare_movielens import verify_published
+          from src.data.storage import StorageSettings, make_client, download, sha256_hex, verify_object
+          settings = StorageSettings.from_env()
+          client = make_client(settings)
+          data = download(client, settings.bucket, 'processed/movielens-1m/v1/manifest.json')
+          assert sha256_hex(data) == '3aecc0051b62854cb9b3d1f22bad75e42908c75dd14900dc4799273862e8247e', 'Manifest differs from PR 94 release'
+          manifest = json.loads(data)
+          for source in manifest['sources']:
+              verify_object(client, settings.bucket, source['key'], source['sha256'], source['size_bytes'])
+          result = verify_published(client, settings.bucket, 'processed/movielens-1m/v1/')
+          ratings = next(x for x in manifest['outputs'] if x['key'].endswith('/ratings.csv'))
+          assert ratings['sha256'] == 'aab3695da6ec8f13ea95f26ec56a7eb8c32f41c4accd9576ede21e5543d1540e'
+          assert ratings['row_count'] == 1000209
+          assert ratings['columns'] == ['user_id','movie_id','rating','timestamp','title','genres','gender','age_code','occupation_code','zip_code']
+          print('PASS: manifest matches PR 94 release.')
+          print('PASS: all original source sizes and SHA-256 checksums match the manifest.')
+          print('PASS: all output sizes, SHA-256 checksums, row counts, and columns match the manifest.')
+          print('PASS: ratings.csv contains 1,000,209 rows with the agreed schema.')
+          PY
