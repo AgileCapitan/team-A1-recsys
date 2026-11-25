@@ -10,6 +10,12 @@ services:
     environment:
       - PORT=8000
       - PYTHONUNBUFFERED=1
+      - MODEL_ARTIFACT_PATH=${MODEL_ARTIFACT_PATH:-/app/artifacts/movielens-v1.joblib}
+      - CATALOG_PATH=${CATALOG_PATH:-/app/artifacts/movie-catalog.csv}
+      - POSTERS_DIR=${POSTERS_DIR:-/app/artifacts/posters}
+      - ALLOW_FALLBACK_PREDICTOR=${ALLOW_FALLBACK_PREDICTOR:-true}
+    volumes:
+      - "${ARTIFACTS_DIR:-./artifacts}:/app/artifacts:ro"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
