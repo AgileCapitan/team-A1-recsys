@@ -28,6 +28,14 @@ def test_load_training_data_from_b2(monkeypatch):
         {"user_id": 1, "movie_id": 10, "rating": 5, "title": "Ten"}
     ]
 
+    with (
+        patch("boto3.client", return_value=client),
+        pytest.raises(ValueError, match="SHA-256 mismatch"),
+    ):
+        load_training_data(
+            "s3://b2-private/processed/movielens-1m/v1/ratings.csv", expected_sha256="wrong"
+        )
+
 
 def test_load_training_data_requires_b2_credentials(monkeypatch):
     monkeypatch.delenv("B2_KEY_ID", raising=False)

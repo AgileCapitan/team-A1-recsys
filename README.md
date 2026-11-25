@@ -104,9 +104,21 @@ python -m src.models.batch_recommend train \
 
 Laptop training requires local `B2_ENDPOINT`, `B2_REGION`, `B2_KEY_ID`, and
 `B2_APPLICATION_KEY` credentials. The local `--data compressed_data.csv.gz`
-path remains supported. Publishing and training through GitHub need separate
-workflow steps with explicitly scoped B2 permissions; the access-check workflow
-is intentionally read-only.
+path remains supported.
+
+The **Train Recommender** GitHub Actions workflow checks for new data or trainer
+changes daily, on trainer changes to `main`, and after successful `main`
+deployments. It selects the highest published MovieLens version with a manifest,
+verifies the ratings checksum, and logs the bundle, dataset identity, and
+training metrics to shared MLflow. An identical completed run skips training.
+Evaluation and promotion to the deployed app are separate steps.
+
+Training uses the existing B2 repository variables and secrets. After shared
+MLflow is reachable, add the HTTPS login password as the
+`MLFLOW_TRACKING_PASSWORD` Actions secret. The workflow defaults to
+`https://team-a1-recsys.duckdns.org/mlflow` with username `mlflow`. Repository
+variables `MLFLOW_TRACKING_URI` and `MLFLOW_TRACKING_USERNAME` override these
+defaults.
 
 The legacy `rustfs-data` named volume is retained in Compose for data
 preservation during the cutover, but RustFS is no longer deployed or used.

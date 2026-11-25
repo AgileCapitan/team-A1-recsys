@@ -9,11 +9,12 @@ import joblib
 import mlflow
 import pandas as pd
 
+from src.data.storage import sha256_hex
 from src.models.mlflow_config import configure_mlflow, load_params
 from src.models.recommender import MatrixFactorization, rating_history, recommend
 
 
-def load_training_data(data_path):
+def load_training_data(data_path, *, expected_sha256=None):
     """Load ratings from a local CSV or an S3-compatible B2 object."""
     data_uri = str(data_path)
     if not data_uri.startswith("s3://"):
@@ -47,14 +48,17 @@ def load_training_data(data_path):
         ),
     )
     response = client.get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))
+    content = response["Body"].read()
+    if expected_sha256 is not None and sha256_hex(content) != expected_sha256:
+        raise ValueError(f"SHA-256 mismatch for {data_uri}")
     return pd.read_csv(
-        BytesIO(response["Body"].read()),
+        BytesIO(content),
         usecols=["user_id", "movie_id", "rating", "title"],
     )
 
 
-def train_and_save(data_path, artifact_path):
-    ratings = load_training_data(data_path)
+def train_and_save(data_path, artifact_path, *, expected_sha256=None, run_tags=None):
+    ratings = load_training_data(data_path, expected_sha256=expected_sha256)
     params = load_params()
     model_params = params.get("model", {})
     if not isinstance(model_params, dict):
@@ -73,7 +77,7 @@ def train_and_save(data_path, artifact_path):
     }
 
     configure_mlflow(params)
-    with mlflow.start_run() as run:
+    with mlflow.start_run(tags=run_tags) as run:
         model = MatrixFactorization().fit(
             ratings,
             factors=factors,
