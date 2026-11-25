@@ -5,10 +5,70 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      preflight_only:
+        description: Check VM listeners and firewall for ports 80 and 443
+        type: boolean
+        default: false
 
 jobs:
+  preflight:
+    name: Check Oracle VM network settings
+    if: github.event_name == 'workflow_dispatch' && inputs.preflight_only
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect web ports via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
+          script: |
+            set -eu
+            export LC_ALL=C
+
+            if command -v ss >/dev/null 2>&1; then
+              for port in 80 443; do
+                listeners=$(ss -H -ltn "sport = :$port")
+                if [ -n "$listeners" ]; then
+                  echo "TCP $port: listening socket present"
+                else
+                  echo "TCP $port: no listening socket reported"
+                fi
+              done
+            else
+              echo "Socket status unavailable: ss is not installed."
+            fi
+
+            if command -v ufw >/dev/null 2>&1; then
+              if ufw_status=$(sudo -n ufw status 2>/dev/null); then
+                printf '%s\n' "$ufw_status" | awk '/^Status: / { print "UFW " $0 }'
+              else
+                echo "UFW status unavailable to the deploy account."
+              fi
+            fi
+
+            if rules=$(sudo -n iptables -S INPUT 2>/dev/null); then
+              printf '%s\n' "$rules" | awk '
+                $1 == "-P" { print "IPv4 INPUT default policy: " $3 }
+                /^-A INPUT -j (DROP|REJECT)( |$)/ {
+                  print "IPv4 INPUT catch-all rule: " $4
+                }
+                /--dports? (80|443)([ ,]|$)/ {
+                  for (i = 1; i < NF; i++) {
+                    if ($i == "-j") print "IPv4 INPUT web-port rule target: " $(i + 1)
+                  }
+                }
+              '
+            else
+              echo "IPv4 INPUT rules unavailable to the deploy account."
+            fi
+
   test:
     name: Run Automated Tests
+    if: github.event_name != 'workflow_dispatch' || !inputs.preflight_only
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -33,7 +93,7 @@ jobs:
     name: Deploy to Oracle Cloud VM
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: ${{ !inputs.preflight_only && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
     steps:
       - name: Deploy application via SSH
         uses: appleboy/ssh-action@v1.2.0
