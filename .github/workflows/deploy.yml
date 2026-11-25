@@ -6,12 +6,10 @@ on:
       - main
   workflow_dispatch:
     inputs:
-<<<<<<< HEAD
       preflight_only:
         description: Check VM listeners and firewall for ports 80 and 443
         type: boolean
         default: false
-=======
       model_key:
         description: "B2 object key for model bundle (e.g. models/movielens-v1/movielens-v1.joblib)"
         required: false
@@ -28,7 +26,6 @@ on:
         description: "MLflow run ID recorded in staged-version.json (optional)"
         required: false
         default: ""
->>>>>>> origin/main
 
 jobs:
   preflight:
@@ -220,24 +217,16 @@ jobs:
       - name: Deploy application via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
-<<<<<<< HEAD
           DEPLOY_SHA: ${{ github.sha }}
           MLFLOW_AUTH_PASSWORD_HASH: ${{ secrets.MLFLOW_AUTH_PASSWORD_HASH }}
-=======
           SHOULD_STAGE: ${{ steps.config.outputs.should_stage }}
           EXPECTED_VERSION: ${{ steps.config.outputs.expected_version }}
->>>>>>> origin/main
         with:
-          envs: DEPLOY_SHA,MLFLOW_AUTH_PASSWORD_HASH
+          envs: DEPLOY_SHA,MLFLOW_AUTH_PASSWORD_HASH,SHOULD_STAGE,EXPECTED_VERSION
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           port: 22
-<<<<<<< HEAD
-=======
-          envs: SHOULD_STAGE,EXPECTED_VERSION
-          script_stop: true
->>>>>>> origin/main
           script: |
             set -eu
 
@@ -292,17 +281,20 @@ jobs:
               docker compose exec -T backend test -r /app/artifacts/movielens-v1.joblib
               docker compose exec -T backend test -r /app/artifacts/movie-catalog.csv
               docker compose exec -T backend test -r /app/artifacts/staged-version.json
-              python3 -c '
-              import json, os
-              health = json.load(open("/tmp/backend_health.json"))
-              assert health.get("artifact_loaded") is True, f"artifact not loaded: {health}"
-              assert health.get("catalog_loaded") is True, f"catalog not loaded: {health}"
-              assert health.get("using_fallback") is False, f"unexpected fallback: {health}"
-              expected = os.getenv("EXPECTED_VERSION", "").strip()
-              if expected:
-                  assert health.get("model_version") == expected, f"version mismatch: {health}"
-              print("Verified deployed model:", health["model_version"])
-              '
+              python3 - <<'PY'
+            import json
+            import os
+
+            with open("/tmp/backend_health.json", encoding="utf-8") as response:
+                health = json.load(response)
+            assert health.get("artifact_loaded") is True, f"artifact not loaded: {health}"
+            assert health.get("catalog_loaded") is True, f"catalog not loaded: {health}"
+            assert health.get("using_fallback") is False, f"unexpected fallback: {health}"
+            expected = os.getenv("EXPECTED_VERSION", "").strip()
+            if expected:
+                assert health.get("model_version") == expected, f"version mismatch: {health}"
+            print("Verified deployed model:", health["model_version"])
+            PY
             fi
 
             echo "Cleaning dangling images to preserve disk space..."
