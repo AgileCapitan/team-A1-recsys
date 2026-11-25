@@ -1,0 +1,100 @@
+name: Train Recommender
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/train-recommender.yml
+      - src/models/**
+      - src/data/storage.py
+      - requirements.txt
+  workflow_run:
+    workflows: [Deploy to Cloud VM]
+    branches: [main]
+    types: [completed]
+  schedule:
+    - cron: "23 5 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recommender-training
+  cancel-in-progress: false
+
+jobs:
+  train:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI || 'https://team-a1-recsys.duckdns.org/mlflow' }}
+      MLFLOW_TRACKING_USERNAME: ${{ vars.MLFLOW_TRACKING_USERNAME || 'mlflow' }}
+    steps:
+      - name: Check shared MLflow readiness
+        id: tracking
+        env:
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          if [[ -z "$MLFLOW_TRACKING_PASSWORD" ]]; then
+            echo "::warning::Training skipped. Configure MLFLOW_TRACKING_PASSWORD after deploying shared MLflow."
+            echo "Training skipped because the shared MLflow password is missing." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "$MLFLOW_TRACKING_URI" != https://* ]]; then
+            echo "::error::MLFLOW_TRACKING_URI must be an HTTPS URL."
+            exit 1
+          fi
+          status=$(curl --silent --show-error --max-time 15 --proto '=https' \
+            --user "$MLFLOW_TRACKING_USERNAME:$MLFLOW_TRACKING_PASSWORD" \
+            --output /dev/null --write-out '%{http_code}' "${MLFLOW_TRACKING_URI%/}/health") || status=000
+          case "$status" in
+            200) ;;
+            401|403)
+              echo "::error::Shared MLflow rejected the configured credentials (HTTP $status)."
+              exit 1
+              ;;
+            *)
+              echo "::warning::Training skipped. Shared MLflow is unavailable (HTTP $status)."
+              echo "Training is waiting for shared MLflow." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+          esac
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.tracking.outputs.configured == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        if: steps.tracking.outputs.configured == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        if: steps.tracking.outputs.configured == 'true'
+        run: python -m pip install -r requirements.txt
+
+      - name: Train on the latest published MovieLens dataset
+        if: steps.tracking.outputs.configured == 'true'
+        env:
+          B2_BUCKET: ${{ vars.B2_BUCKET }}
+          B2_ENDPOINT: ${{ vars.B2_ENDPOINT }}
+          B2_REGION: ${{ vars.B2_REGION }}
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+          MLFLOW_HTTP_REQUEST_TIMEOUT: "30"
+          MLFLOW_HTTP_REQUEST_MAX_RETRIES: "2"
+          TRAINER_DIGEST: ${{ hashFiles('src/models/batch_recommend.py', 'src/models/recommender.py', 'src/models/mlflow_config.py', 'src/models/params.yaml', 'src/data/storage.py', 'requirements.txt') }}
+        run: |
+          python -m src.models.train_from_b2 \
+            --artifact "$RUNNER_TEMP/movielens-v1.joblib" \
+            --trainer-digest "$TRAINER_DIGEST" \
+            --commit "$GITHUB_SHA"

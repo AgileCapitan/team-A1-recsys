@@ -31,7 +31,7 @@ def configure_mlflow(params: dict[str, Any] | None = None) -> str:
     if not isinstance(mlflow_params, dict):
         raise ValueError("The 'mlflow' section is required in params.yaml")
 
-    tracking_uri = mlflow_params.get("tracking_uri")
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI") or mlflow_params.get("tracking_uri")
     experiment_name = mlflow_params.get("experiment_name")
     if not isinstance(tracking_uri, str) or not tracking_uri:
         raise ValueError("The MLflow tracking URI must be a non-empty string")
