@@ -110,6 +110,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: ${{ !inputs.preflight_only && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+    concurrency:
+      group: oracle-vm-deploy
+      queue: max
     steps:
       - name: Resolve staging configuration
         id: config

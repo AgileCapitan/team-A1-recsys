@@ -1,11 +1,14 @@
 import csv
 import json
+import subprocess
 from pathlib import Path
+from unittest.mock import Mock
 
 import joblib
 import pytest
 
 from src.models.batch_recommend import train_and_save
+from src.serving import stage_artifacts
 from src.serving.stage_artifacts import upload_serving_artifacts, validate_and_write_manifest
 
 
@@ -144,3 +147,83 @@ def test_upload_serving_artifacts_verifies_and_refuses_overwrite(tmp_path, s3):
             client=s3,
             bucket="team-a1-recsys",
         )
+
+
+@pytest.mark.parametrize("deploy", [False, True])
+def test_upload_command_dispatches_the_verified_keys_only_when_requested(monkeypatch, deploy):
+    upload = Mock(
+        return_value={
+            "model_version": "movielens-v2",
+            "model": {"key": "models/v2/verified.joblib"},
+            "catalog": {"key": "models/v2/verified.csv"},
+        }
+    )
+    run = Mock()
+    monkeypatch.setattr(stage_artifacts, "upload_serving_artifacts", upload)
+    monkeypatch.setattr(stage_artifacts.shutil, "which", lambda _: "/usr/bin/gh")
+    monkeypatch.setattr(stage_artifacts.subprocess, "run", run)
+    args = ["upload", "--model", "model.joblib", "--model-key", "models/v2/requested.joblib"]
+    if deploy:
+        args += ["--deploy", "--mlflow-run-id", "training-run"]
+
+    stage_artifacts.main(args)
+
+    upload.assert_called_once()
+    if deploy:
+        run.assert_called_once()
+        assert run.call_args.args[0] == [
+            "gh",
+            "workflow",
+            "run",
+            "deploy.yml",
+            "--repo",
+            "AgileCapitan/team-A1-recsys",
+            "--ref",
+            "main",
+            "--json",
+        ]
+        assert json.loads(run.call_args.kwargs["input"]) == {
+            "model_key": "models/v2/verified.joblib",
+            "catalog_key": "models/v2/verified.csv",
+            "expected_version": "movielens-v2",
+            "mlflow_run_id": "training-run",
+        }
+    else:
+        run.assert_not_called()
+
+
+def test_upload_command_does_not_deploy_after_upload_failure(monkeypatch):
+    run = Mock()
+    monkeypatch.setattr(
+        stage_artifacts,
+        "upload_serving_artifacts",
+        Mock(side_effect=ValueError("checksum mismatch")),
+    )
+    monkeypatch.setattr(stage_artifacts.shutil, "which", lambda _: "/usr/bin/gh")
+    monkeypatch.setattr(stage_artifacts.subprocess, "run", run)
+
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        stage_artifacts.main(
+            ["upload", "--model", "model.joblib", "--model-key", "key", "--deploy"]
+        )
+
+    run.assert_not_called()
+
+
+def test_upload_command_reports_published_key_after_dispatch_failure(monkeypatch, capsys):
+    summary = {"model_version": "movielens-v2", "model": {"key": "models/v2/model.joblib"}}
+    monkeypatch.setattr(stage_artifacts, "upload_serving_artifacts", Mock(return_value=summary))
+    monkeypatch.setattr(stage_artifacts.shutil, "which", lambda _: "/usr/bin/gh")
+    monkeypatch.setattr(
+        stage_artifacts.subprocess, "run", Mock(side_effect=subprocess.CalledProcessError(1, "gh"))
+    )
+
+    with pytest.raises(SystemExit) as result:
+        stage_artifacts.main(
+            ["upload", "--model", "model.joblib", "--model-key", "key", "--deploy"]
+        )
+
+    assert result.value.code == 1
+    output = capsys.readouterr()
+    assert json.loads(output.out) == summary
+    assert "B2 upload verified" in output.err

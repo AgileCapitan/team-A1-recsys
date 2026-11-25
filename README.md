@@ -156,21 +156,26 @@ Oracle VM by GitHub Actions (`.github/workflows/deploy.yml`). The FastAPI
 container reads only local files mounted read-only from `./artifacts` into
 `/app/artifacts/` — B2 credentials never live on the VM.
 
-1. Upload a validated model bundle (and optional catalog) to an immutable B2 key:
+1. Publish a validated model bundle to a new B2 key and start the Oracle
+   deployment. Use the project's B2 bucket and sign in to the GitHub CLI with
+   an account that can run the repository's Actions workflows:
 
    ```bash
    python -m src.serving.stage_artifacts upload \
      --model artifacts/movielens-v1.joblib \
      --model-key models/movielens-v1/movielens-v1.joblib \
-     --catalog artifacts/movie-catalog.csv \
-     --catalog-key models/movielens-v1/movie-catalog.csv
+     --deploy
    ```
 
-2. Configure repository variables (`SERVING_MODEL_KEY`, optional
-   `SERVING_CATALOG_KEY` defaulting to `processed/movielens-1m/v1/movies.csv`,
-   optional `SERVING_MODEL_VERSION`, optional `SERVING_MLFLOW_RUN_ID`) or pass
-   the equivalent inputs when running **Deploy to Cloud VM** via
-   `workflow_dispatch`.
+   `--deploy` sends the verified key and model version directly to **Deploy to
+   Cloud VM**. The workflow uses `processed/movielens-1m/v1/movies.csv` by
+   default. Use `--catalog` and `--catalog-key` together to publish a different
+   catalog, or `--mlflow-run-id` to record the training run.
+2. To publish only, omit `--deploy`. To deploy an already uploaded bundle,
+   including after a failed dispatch, run **Deploy to Cloud VM** with the
+   `model_key` and `expected_version` from the upload output. Pass `catalog_key`
+   too if you published a catalog. Set `SERVING_MODEL_KEY` as a repository
+   variable when you want a pinned default for ordinary code deployments.
 3. During deployment, the runner downloads and validates the files with
    `python -m src.serving.stage_artifacts validate`, writes `staged-version.json`
    with SHA-256 digests and version metadata, transfers them to the VM over SSH,

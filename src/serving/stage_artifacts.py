@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -131,7 +133,35 @@ def upload_serving_artifacts(
     return summary
 
 
-def main() -> None:
+def _dispatch_deployment(summary: dict[str, Any], mlflow_run_id: str | None) -> None:
+    inputs = {
+        "model_key": summary["model"]["key"],
+        "expected_version": summary["model_version"],
+    }
+    if "catalog" in summary:
+        inputs["catalog_key"] = summary["catalog"]["key"]
+    if mlflow_run_id:
+        inputs["mlflow_run_id"] = mlflow_run_id
+
+    subprocess.run(
+        [
+            "gh",
+            "workflow",
+            "run",
+            "deploy.yml",
+            "--repo",
+            "AgileCapitan/team-A1-recsys",
+            "--ref",
+            "main",
+            "--json",
+        ],
+        input=json.dumps(inputs),
+        text=True,
+        check=True,
+    )
+
+
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Validate staged serving artifacts and upload versioned bundles to B2."
     )
@@ -158,8 +188,14 @@ def main() -> None:
     upload_cmd.add_argument("--model-key", required=True)
     upload_cmd.add_argument("--catalog", type=Path, default=None)
     upload_cmd.add_argument("--catalog-key", default=None)
+    upload_cmd.add_argument(
+        "--deploy",
+        action="store_true",
+        help="Start the Oracle deployment after the upload is verified (requires gh).",
+    )
+    upload_cmd.add_argument("--mlflow-run-id", help="MLflow run ID to record during deployment.")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command == "validate":
         manifest = validate_and_write_manifest(
             args.model,
@@ -173,13 +209,24 @@ def main() -> None:
         )
         print(json.dumps(manifest, indent=2))
     else:
+        if args.deploy and shutil.which("gh") is None:
+            parser.error("--deploy requires the GitHub CLI (gh).")
         result = upload_serving_artifacts(
             args.model,
             args.model_key,
             catalog_path=args.catalog,
             catalog_key=args.catalog_key,
         )
-        print(json.dumps(result, indent=2))
+        print(json.dumps(result, indent=2), flush=args.deploy)
+        if args.deploy:
+            try:
+                _dispatch_deployment(result, args.mlflow_run_id)
+            except (OSError, subprocess.CalledProcessError):
+                parser.exit(
+                    1,
+                    "B2 upload verified, but the deploy request failed. "
+                    "Retry Deploy to Cloud VM using the uploaded keys above.\n",
+                )
 
 
 if __name__ == "__main__":
