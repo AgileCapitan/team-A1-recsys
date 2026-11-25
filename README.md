@@ -81,9 +81,13 @@ Shared objects use these prefixes:
 | Manifest | `processed/movielens-1m/v1/manifest.json` |
 | Model artifacts | `models/` |
 
-The CSV schema is `user_id,movie_id,rating,title`; the manifest records the
-object key, SHA-256 checksum, byte size, row count, and schema. Publish the
-manifest last so consumers never treat an incomplete upload as a release.
+The `ratings.csv` schema is
+`user_id,movie_id,rating,timestamp,title,genres,gender,age_code,occupation_code,zip_code`
+(training reads `user_id,movie_id,rating,title`); `users.csv` and `movies.csv`
+are published alongside it. The manifest records the source and output object
+keys, SHA-256 checksums, byte sizes, row counts, columns, pipeline commit, and
+UTC creation time. The manifest is published last so consumers never treat an
+incomplete upload as a release.
 
 GitHub Actions has the manually triggered **Check B2 Access** workflow. It uses
 the repository's configured B2 secrets and variables to perform a read-only
@@ -106,6 +110,73 @@ is intentionally read-only.
 
 The legacy `rustfs-data` named volume is retained in Compose for data
 preservation during the cutover, but RustFS is no longer deployed or used.
+
+### Publishing the MovieLens 1M dataset (US3.3)
+
+The conversion lives in `src/data/` and needs `B2_ENDPOINT`, `B2_REGION`,
+`B2_BUCKET`, `B2_KEY_ID`, and `B2_APPLICATION_KEY` in the environment, with a
+key that can write to the bucket. Put the original `users.dat`, `movies.dat`
+and `ratings.dat` in `data/raw/ml-1m/`, then:
+
+```bash
+# 1. Write and read back a test object under test/noe/
+python -m src.data.check_b2 roundtrip
+
+# 2. Upload the raw files to raw/movielens-1m/ (existing objects are verified, never overwritten)
+python -m src.data.upload_raw --source-dir data/raw/ml-1m
+
+# 3. Dry run: read the raw objects, validate, and write CSVs + manifest locally
+python -m src.data.prepare_movielens --output-dir data/processed/movielens-1m/v1
+
+# 4. Publish to processed/movielens-1m/v1/ (manifest last), then download and verify
+python -m src.data.prepare_movielens --output-dir data/processed/movielens-1m/v1 --publish
+
+# 5. Re-verify the published objects against the manifest at any time
+python -m src.data.check_b2 verify-dataset --prefix processed/movielens-1m/v1/
+```
+
+Validation fails the run, so nothing is uploaded, when a row has the wrong
+number of `::` fields, an ID is not a positive integer, a rating is not an
+integer from 1 to 5, a timestamp is missing, invalid, or in the future, a
+user/movie ID or `(user_id, movie_id)` pair is duplicated, or a rating
+references an unknown user or movie. Original MovieLens IDs and leading zeros
+in ZIP codes are preserved, and the output is sorted, so the CSVs are
+byte-for-byte reproducible. Publishing refuses to write into a prefix that
+already holds a release: changed output goes to a new prefix such as
+`processed/movielens-1m/v2/`. For a local run without storage access, use
+`--source-dir data/raw/ml-1m`; it cannot be combined with `--publish`.
+
+The tests in `tests/test_prepare_movielens.py` use an in-memory S3 client and
+need no credentials.
+
+### Staging serving artifacts to Oracle VM (US6.1-T3)
+
+Versioned model artifacts are stored in B2 under `models/` and staged onto the
+Oracle VM by GitHub Actions (`.github/workflows/deploy.yml`). The FastAPI
+container reads only local files mounted read-only from `./artifacts` into
+`/app/artifacts/` — B2 credentials never live on the VM.
+
+1. Upload a validated model bundle (and optional catalog) to an immutable B2 key:
+
+   ```bash
+   python -m src.serving.stage_artifacts upload \
+     --model artifacts/movielens-v1.joblib \
+     --model-key models/movielens-v1/movielens-v1.joblib \
+     --catalog artifacts/movie-catalog.csv \
+     --catalog-key models/movielens-v1/movie-catalog.csv
+   ```
+
+2. Configure repository variables (`SERVING_MODEL_KEY`, optional
+   `SERVING_CATALOG_KEY` defaulting to `processed/movielens-1m/v1/movies.csv`,
+   optional `SERVING_MODEL_VERSION`, optional `SERVING_MLFLOW_RUN_ID`) or pass
+   the equivalent inputs when running **Deploy to Cloud VM** via
+   `workflow_dispatch`.
+3. During deployment, the runner downloads and validates the files with
+   `python -m src.serving.stage_artifacts validate`, writes `staged-version.json`
+   with SHA-256 digests and version metadata, transfers them to the VM over SSH,
+   atomically promotes them into `~/team-A1-recsys/artifacts/`, restarts Docker
+   Compose, and verifies `/health` reports `artifact_loaded: true` and
+   `using_fallback: false`.
 
 ## Data preparation pipeline (US3.2, DVC)
 

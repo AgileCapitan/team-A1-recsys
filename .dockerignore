@@ -44,3 +44,4 @@ Thumbs.db
 
 # Notebooks & Data artifacts
 notebooks/.ipynb_checkpoints/
+artifacts/
