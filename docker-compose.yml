@@ -6,7 +6,16 @@ services:
     image: recsys-backend:latest
     container_name: recsys-backend
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    command:
+      - uvicorn
+      - api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --root-path
+      - ${API_ROOT_PATH:-}
     environment:
       - PORT=8000
       - PYTHONUNBUFFERED=1
@@ -27,7 +36,7 @@ services:
     image: recsys-frontend:latest
     container_name: recsys-frontend
     ports:
-      - "${FRONTEND_PORT:-8501}:8501"
+      - "127.0.0.1:${FRONTEND_PORT:-8501}:8501"
     environment:
       - API_URL=http://backend:8000
       - PORT=8501
@@ -45,9 +54,70 @@ services:
     networks:
       - recsys-network
 
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.18.0
+    profiles:
+      - mlflow
+    ports:
+      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - sqlite:////mlflow/mlflow.db
+      - --registry-store-uri
+      - sqlite:////mlflow/mlflow.db
+      - --serve-artifacts
+      - --artifacts-destination
+      - /mlflow/artifacts
+      - --static-prefix
+      - ${MLFLOW_STATIC_PREFIX:-}
+      - --allowed-hosts
+      - ${MLFLOW_ALLOWED_HOSTS:-localhost,127.0.0.1,mlflow,team-a1-recsys.duckdns.org}
+      - --cors-allowed-origins
+      - ${MLFLOW_CORS_ALLOWED_ORIGINS:-http://localhost:5000,http://127.0.0.1:5000,https://team-a1-recsys.duckdns.org}
+    volumes:
+      - mlflow-data:/mlflow
+    restart: unless-stopped
+    networks:
+      - recsys-network
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    profiles:
+      - mlflow
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      MLFLOW_HOST: ${MLFLOW_HOST:-team-a1-recsys.duckdns.org}
+      MLFLOW_AUTH_USER: ${MLFLOW_AUTH_USER:-mlflow}
+      MLFLOW_AUTH_PASSWORD_HASH: ${MLFLOW_AUTH_PASSWORD_HASH:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - recsys-network
+
 networks:
   recsys-network:
     driver: bridge
 
 volumes:
   rustfs-data:
+  mlflow-data:
+  caddy-data:
+  caddy-config:

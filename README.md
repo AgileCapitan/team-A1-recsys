@@ -194,8 +194,64 @@ from src.models.mlflow_config import configure_mlflow
 configure_mlflow()
 ```
 
-This uses the repository-level `mlruns/` directory and the
-`movie-recommender` experiment.
+By default this uses the repository-level `mlruns/` directory and the
+`movie-recommender` experiment. When set, `MLFLOW_TRACKING_URI` overrides the
+YAML `mlflow.tracking_uri`; otherwise the YAML local default is used. To use
+the persistent local MLflow server instead, start its optional Compose service:
+
+```bash
+docker compose --profile mlflow up -d mlflow
+```
+
+Open the MLflow UI at [http://127.0.0.1:5000](http://127.0.0.1:5000). To point
+the existing trainer at the server, set the tracking URI in the same shell and
+run the usual training command:
+
+```bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+python -m src.models.batch_recommend train \
+  --data compressed_data.csv.gz \
+  --artifact artifacts/movielens-v1.joblib
+```
+
+The Compose service binds only to localhost. Its `mlflow-data` named volume
+stores both the SQLite tracking/registry database and model artifacts; Compose
+keeps this volume when the service container is recreated or when `docker
+compose down` is run. Do not use `docker compose down -v` if you want to retain
+the MLflow history.
+
+### Shared Oracle HTTPS routes
+
+The Oracle deployment will use one HTTPS hostname with these routes:
+
+| URL path | Service |
+| :--- | :--- |
+| `/` | Streamlit |
+| `/api/` | FastAPI (`/api/docs` for Swagger) |
+| `/mlflow/` | MLflow UI and tracking API (HTTP Basic Auth required) |
+
+Caddy terminates HTTPS and routes traffic internally. Generate the bcrypt
+value with the same Caddy image used by Compose:
+
+```bash
+docker run --rm -it caddy:2.10.2-alpine caddy hash-password
+```
+
+Save the generated hash as the repository Actions secret
+`MLFLOW_AUTH_PASSWORD_HASH`. The deploy workflow writes the hash,
+`API_ROOT_PATH=/api`, and `MLFLOW_STATIC_PREFIX=/mlflow` to the VM's ignored
+`.env` before starting the `mlflow` Compose profile. The default login is
+`mlflow`. Share the original password with teammates through the team's
+password manager.
+Training clients use the authenticated HTTPS tracking URI and credentials:
+
+```bash
+export MLFLOW_TRACKING_URI=https://team-a1-recsys.duckdns.org/mlflow
+export MLFLOW_TRACKING_USERNAME=mlflow
+export MLFLOW_TRACKING_PASSWORD='<team password>'
+```
+
+
 ## Data Profiling & Exploratory Analysis
 
 Data schema validation, missing-value checks, demographic–genre analysis, and temporal drift monitoring are documented in [`notebooks/dataProfiling.ipynb`](notebooks/dataProfiling.ipynb).
