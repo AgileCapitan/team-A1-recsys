@@ -1,0 +1,21 @@
+{$MLFLOW_HOST} {
+	encode zstd gzip
+
+	@mlflow path /mlflow /mlflow/* /api/2.0/mlflow-artifacts* /ajax-api/2.0/mlflow-artifacts*
+	handle @mlflow {
+		basic_auth {
+			{$MLFLOW_AUTH_USER} {$MLFLOW_AUTH_PASSWORD_HASH}
+		}
+		reverse_proxy mlflow:5000
+	}
+
+	@api path /api /api/*
+	handle @api {
+		uri strip_prefix /api
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:8501
+	}
+}

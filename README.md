@@ -168,21 +168,26 @@ Oracle VM by GitHub Actions (`.github/workflows/deploy.yml`). The FastAPI
 container reads only local files mounted read-only from `./artifacts` into
 `/app/artifacts/` — B2 credentials never live on the VM.
 
-1. Upload a validated model bundle (and optional catalog) to an immutable B2 key:
+1. Publish a validated model bundle to a new B2 key and start the Oracle
+   deployment. Use the project's B2 bucket and sign in to the GitHub CLI with
+   an account that can run the repository's Actions workflows:
 
    ```bash
    python -m src.serving.stage_artifacts upload \
      --model artifacts/movielens-v1.joblib \
      --model-key models/movielens-v1/movielens-v1.joblib \
-     --catalog artifacts/movie-catalog.csv \
-     --catalog-key models/movielens-v1/movie-catalog.csv
+     --deploy
    ```
 
-2. Configure repository variables (`SERVING_MODEL_KEY`, optional
-   `SERVING_CATALOG_KEY` defaulting to `processed/movielens-1m/v1/movies.csv`,
-   optional `SERVING_MODEL_VERSION`, optional `SERVING_MLFLOW_RUN_ID`) or pass
-   the equivalent inputs when running **Deploy to Cloud VM** via
-   `workflow_dispatch`.
+   `--deploy` sends the verified key and model version directly to **Deploy to
+   Cloud VM**. The workflow uses `processed/movielens-1m/v1/movies.csv` by
+   default. Use `--catalog` and `--catalog-key` together to publish a different
+   catalog, or `--mlflow-run-id` to record the training run.
+2. To publish only, omit `--deploy`. To deploy an already uploaded bundle,
+   including after a failed dispatch, run **Deploy to Cloud VM** with the
+   `model_key` and `expected_version` from the upload output. Pass `catalog_key`
+   too if you published a catalog. Set `SERVING_MODEL_KEY` as a repository
+   variable when you want a pinned default for ordinary code deployments.
 3. During deployment, the runner downloads and validates the files with
    `python -m src.serving.stage_artifacts validate`, writes `staged-version.json`
    with SHA-256 digests and version metadata, transfers them to the VM over SSH,
@@ -277,8 +282,64 @@ from src.models.mlflow_config import configure_mlflow
 configure_mlflow()
 ```
 
-This uses the repository-level `mlruns/` directory and the
-`movie-recommender` experiment.
+By default this uses the repository-level `mlruns/` directory and the
+`movie-recommender` experiment. When set, `MLFLOW_TRACKING_URI` overrides the
+YAML `mlflow.tracking_uri`; otherwise the YAML local default is used. To use
+the persistent local MLflow server instead, start its optional Compose service:
+
+```bash
+docker compose --profile mlflow up -d mlflow
+```
+
+Open the MLflow UI at [http://127.0.0.1:5000](http://127.0.0.1:5000). To point
+the existing trainer at the server, set the tracking URI in the same shell and
+run the usual training command:
+
+```bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+python -m src.models.batch_recommend train \
+  --data compressed_data.csv.gz \
+  --artifact artifacts/movielens-v1.joblib
+```
+
+The Compose service binds only to localhost. Its `mlflow-data` named volume
+stores both the SQLite tracking/registry database and model artifacts; Compose
+keeps this volume when the service container is recreated or when `docker
+compose down` is run. Do not use `docker compose down -v` if you want to retain
+the MLflow history.
+
+### Shared Oracle HTTPS routes
+
+The Oracle deployment will use one HTTPS hostname with these routes:
+
+| URL path | Service |
+| :--- | :--- |
+| `/` | Streamlit |
+| `/api/` | FastAPI (`/api/docs` for Swagger) |
+| `/mlflow/` | MLflow UI and tracking API (HTTP Basic Auth required) |
+
+Caddy terminates HTTPS and routes traffic internally. Generate the bcrypt
+value with the same Caddy image used by Compose:
+
+```bash
+docker run --rm -it caddy:2.10.2-alpine caddy hash-password
+```
+
+Save the generated hash as the repository Actions secret
+`MLFLOW_AUTH_PASSWORD_HASH`. The deploy workflow writes the hash,
+`API_ROOT_PATH=/api`, and `MLFLOW_STATIC_PREFIX=/mlflow` to the VM's ignored
+`.env` before starting the `mlflow` Compose profile. The default login is
+`mlflow`. Share the original password with teammates through the team's
+password manager.
+Training clients use the authenticated HTTPS tracking URI and credentials:
+
+```bash
+export MLFLOW_TRACKING_URI=https://team-a1-recsys.duckdns.org/mlflow
+export MLFLOW_TRACKING_USERNAME=mlflow
+export MLFLOW_TRACKING_PASSWORD='<team password>'
+```
+
+
 ## Data Profiling & Exploratory Analysis
 
 Data schema validation, missing-value checks, demographic–genre analysis, and temporal drift monitoring are documented in [`notebooks/dataProfiling.ipynb`](notebooks/dataProfiling.ipynb).

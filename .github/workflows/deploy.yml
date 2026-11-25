@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
     inputs:
+      preflight_only:
+        description: Check VM listeners and firewall for ports 80 and 443
+        type: boolean
+        default: false
       model_key:
         description: "B2 object key for model bundle (e.g. models/movielens-v1/movielens-v1.joblib)"
         required: false
@@ -24,8 +28,63 @@ on:
         default: ""
 
 jobs:
+  preflight:
+    name: Check Oracle VM network settings
+    if: github.event_name == 'workflow_dispatch' && inputs.preflight_only
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect web ports via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
+          script: |
+            set -eu
+            export LC_ALL=C
+
+            if command -v ss >/dev/null 2>&1; then
+              for port in 80 443; do
+                listeners=$(ss -H -ltn "sport = :$port")
+                if [ -n "$listeners" ]; then
+                  echo "TCP $port: listening socket present"
+                else
+                  echo "TCP $port: no listening socket reported"
+                fi
+              done
+            else
+              echo "Socket status unavailable: ss is not installed."
+            fi
+
+            if command -v ufw >/dev/null 2>&1; then
+              if ufw_status=$(sudo -n ufw status 2>/dev/null); then
+                printf '%s\n' "$ufw_status" | awk '/^Status: / { print "UFW " $0 }'
+              else
+                echo "UFW status unavailable to the deploy account."
+              fi
+            fi
+
+            if rules=$(sudo -n iptables -S INPUT 2>/dev/null); then
+              printf '%s\n' "$rules" | awk '
+                $1 == "-P" { print "IPv4 INPUT default policy: " $3 }
+                /^-A INPUT -j (DROP|REJECT)( |$)/ {
+                  print "IPv4 INPUT catch-all rule: " $4
+                }
+                /--dports? (80|443)([ ,]|$)/ {
+                  for (i = 1; i < NF; i++) {
+                    if ($i == "-j") print "IPv4 INPUT web-port rule target: " $(i + 1)
+                  }
+                }
+              '
+            else
+              echo "IPv4 INPUT rules unavailable to the deploy account."
+            fi
+
   test:
     name: Run Automated Tests
+    if: github.event_name != 'workflow_dispatch' || !inputs.preflight_only
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -50,7 +109,10 @@ jobs:
     name: Deploy to Oracle Cloud VM
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: ${{ !inputs.preflight_only && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+    concurrency:
+      group: oracle-vm-deploy
+      queue: max
     steps:
       - name: Resolve staging configuration
         id: config
@@ -158,22 +220,40 @@ jobs:
       - name: Deploy application via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
+          DEPLOY_SHA: ${{ github.sha }}
+          MLFLOW_AUTH_PASSWORD_HASH: ${{ secrets.MLFLOW_AUTH_PASSWORD_HASH }}
           SHOULD_STAGE: ${{ steps.config.outputs.should_stage }}
           EXPECTED_VERSION: ${{ steps.config.outputs.expected_version }}
         with:
+          envs: DEPLOY_SHA,MLFLOW_AUTH_PASSWORD_HASH,SHOULD_STAGE,EXPECTED_VERSION
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           port: 22
-          envs: SHOULD_STAGE,EXPECTED_VERSION
-          script_stop: true
           script: |
+            set -eu
+
+            if [ -z "${MLFLOW_AUTH_PASSWORD_HASH:-}" ]; then
+              echo "Set the MLFLOW_AUTH_PASSWORD_HASH repository Actions secret before deploying." >&2
+              exit 1
+            fi
+
             echo "Navigating to repository directory..."
             cd ~/team-A1-recsys || cd team-A1-recsys
 
-            echo "Fetching latest changes from origin..."
-            git fetch origin main
-            git reset --hard origin/main
+            echo "Fetching requested deployment commit..."
+            git fetch origin "$DEPLOY_SHA"
+            git reset --hard FETCH_HEAD
+
+            echo "Configuring MLflow authentication and route prefixes..."
+            mlflow_env_file=$(mktemp .env.mlflow.XXXXXX)
+            trap 'rm -f -- "$mlflow_env_file"' EXIT
+            if [ -f .env ]; then
+              awk '!/^[[:space:]]*(export[[:space:]]+)?(MLFLOW_AUTH_PASSWORD_HASH|API_ROOT_PATH|MLFLOW_STATIC_PREFIX)[[:space:]]*([=:]|$)/' .env > "$mlflow_env_file"
+            fi
+            printf "MLFLOW_AUTH_PASSWORD_HASH='%s'\nAPI_ROOT_PATH=/api\nMLFLOW_STATIC_PREFIX=/mlflow\n" \
+              "$MLFLOW_AUTH_PASSWORD_HASH" >> "$mlflow_env_file"
+            mv -f -- "$mlflow_env_file" .env
 
             if [ "$SHOULD_STAGE" = "true" ]; then
               echo "Promoting validated serving artifacts into artifacts/..."
@@ -188,7 +268,7 @@ jobs:
             fi
 
             echo "Rebuilding and restarting Docker containers..."
-            docker compose up -d --build --remove-orphans
+            docker compose --profile mlflow up -d --build --remove-orphans
 
             echo "Waiting for backend health endpoint..."
             for i in $(seq 1 30); do
@@ -204,17 +284,20 @@ jobs:
               docker compose exec -T backend test -r /app/artifacts/movielens-v1.joblib
               docker compose exec -T backend test -r /app/artifacts/movie-catalog.csv
               docker compose exec -T backend test -r /app/artifacts/staged-version.json
-              python3 -c '
-              import json, os
-              health = json.load(open("/tmp/backend_health.json"))
-              assert health.get("artifact_loaded") is True, f"artifact not loaded: {health}"
-              assert health.get("catalog_loaded") is True, f"catalog not loaded: {health}"
-              assert health.get("using_fallback") is False, f"unexpected fallback: {health}"
-              expected = os.getenv("EXPECTED_VERSION", "").strip()
-              if expected:
-                  assert health.get("model_version") == expected, f"version mismatch: {health}"
-              print("Verified deployed model:", health["model_version"])
-              '
+              python3 - <<'PY'
+            import json
+            import os
+
+            with open("/tmp/backend_health.json", encoding="utf-8") as response:
+                health = json.load(response)
+            assert health.get("artifact_loaded") is True, f"artifact not loaded: {health}"
+            assert health.get("catalog_loaded") is True, f"catalog not loaded: {health}"
+            assert health.get("using_fallback") is False, f"unexpected fallback: {health}"
+            expected = os.getenv("EXPECTED_VERSION", "").strip()
+            if expected:
+                assert health.get("model_version") == expected, f"version mismatch: {health}"
+            print("Verified deployed model:", health["model_version"])
+            PY
             fi
 
             echo "Cleaning dangling images to preserve disk space..."
