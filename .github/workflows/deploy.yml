@@ -255,12 +255,16 @@ jobs:
               "$MLFLOW_AUTH_PASSWORD_HASH" >> "$mlflow_env_file"
             mv -f -- "$mlflow_env_file" .env
 
+            if [ -d artifacts ] && [ ! -w artifacts ]; then
+              rmdir artifacts 2>/dev/null || mv artifacts "artifacts.prev.$(date +%s)"
+            fi
+            mkdir -p artifacts
+
             if [ "$SHOULD_STAGE" = "true" ]; then
               echo "Promoting validated serving artifacts into artifacts/..."
               test -s .artifacts-staging/movielens-v1.joblib
               test -s .artifacts-staging/movie-catalog.csv
               test -s .artifacts-staging/staged-version.json
-              mkdir -p artifacts
               mv -f .artifacts-staging/movielens-v1.joblib artifacts/movielens-v1.joblib
               mv -f .artifacts-staging/movie-catalog.csv artifacts/movie-catalog.csv
               mv -f .artifacts-staging/staged-version.json artifacts/staged-version.json
@@ -269,6 +273,9 @@ jobs:
 
             echo "Rebuilding and restarting Docker containers..."
             docker compose --profile mlflow up -d --build --remove-orphans
+            if [ "$SHOULD_STAGE" = "true" ]; then
+              docker compose --profile mlflow up -d --force-recreate --no-deps backend
+            fi
 
             echo "Waiting for backend health endpoint..."
             for i in $(seq 1 30); do
