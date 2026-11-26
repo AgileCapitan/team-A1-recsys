@@ -114,6 +114,12 @@ verifies the ratings checksum, and logs the bundle, dataset identity, and
 training metrics to shared MLflow. An identical completed run skips training.
 Evaluation and promotion to the deployed app are separate steps.
 
+The opt-in [evaluated champion release](docs/champion-release.md) workflow (#109)
+consumes an explicit evaluation decision and immutable registry version, verifies
+the exact run bundle and matching dataset catalog, and hands their keys/checksums
+to Oracle staging. It stays disabled while the evaluation policy and registry
+producer contract (#29–30, #38–40) remain dependencies.
+
 Training uses the existing B2 repository variables and secrets. After shared
 MLflow is reachable, add the HTTPS login password as the
 `MLFLOW_TRACKING_PASSWORD` Actions secret. The workflow defaults to

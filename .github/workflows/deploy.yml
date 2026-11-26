@@ -1,4 +1,5 @@
 name: Deploy to Cloud VM
+run-name: "Oracle staging ${{ inputs.release_id || github.sha }}"
 
 on:
   push:
@@ -24,6 +25,18 @@ on:
         default: ""
       mlflow_run_id:
         description: "MLflow run ID recorded in staged-version.json (optional)"
+        required: false
+        default: ""
+      model_sha256:
+        description: Expected SHA-256 of the evaluated serving bundle
+        required: false
+        default: ""
+      catalog_sha256:
+        description: Expected SHA-256 of the matching catalog
+        required: false
+        default: ""
+      release_id:
+        description: Correlation ID for an evaluated champion release
         required: false
         default: ""
 
@@ -170,6 +183,8 @@ jobs:
           CATALOG_KEY: ${{ steps.config.outputs.catalog_key }}
           EXPECTED_VERSION: ${{ steps.config.outputs.expected_version }}
           MLFLOW_RUN_ID: ${{ steps.config.outputs.mlflow_run_id }}
+          MODEL_SHA256: ${{ inputs.model_sha256 }}
+          CATALOG_SHA256: ${{ inputs.catalog_sha256 }}
         run: |
           if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$B2_BUCKET" ] || [ -z "$B2_ENDPOINT" ]; then
             echo "Missing required B2 secrets/variables for artifact staging."
@@ -188,6 +203,8 @@ jobs:
             --expected-version "$EXPECTED_VERSION" \
             --mlflow-run-id "$MLFLOW_RUN_ID" \
             --git-sha "$GITHUB_SHA" \
+            --expected-model-sha256 "$MODEL_SHA256" \
+            --expected-catalog-sha256 "$CATALOG_SHA256" \
             --manifest staged_artifacts/staged-version.json
 
           (cd staged_artifacts && sha256sum movielens-v1.joblib movie-catalog.csv staged-version.json > SHA256SUMS)
@@ -293,7 +310,9 @@ jobs:
               docker compose exec -T backend test -r /app/artifacts/staged-version.json
               python3 - <<'PY'
             import json
+            import math
             import os
+            import urllib.request
 
             with open("/tmp/backend_health.json", encoding="utf-8") as response:
                 health = json.load(response)
@@ -304,6 +323,15 @@ jobs:
             if expected:
                 assert health.get("model_version") == expected, f"version mismatch: {health}"
             print("Verified deployed model:", health["model_version"])
+            if expected:
+                with urllib.request.urlopen("http://localhost:8000/recommend/1?top_k=3", timeout=15) as response:
+                    result = json.load(response)
+                assert result["user_id"] == 1, result
+                assert result["model_version"] == expected, result
+                assert result["using_fallback"] is False, result
+                assert result["recommendations"], result
+                assert all(math.isfinite(float(rec["score"])) for rec in result["recommendations"]), result
+                print("Verified recommendations for user 1")
             PY
             fi
 

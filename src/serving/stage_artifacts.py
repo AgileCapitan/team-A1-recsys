@@ -9,7 +9,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from src.data.storage import StorageSettings, make_client, sha256_hex, upload_verified
+from src.data.storage import (
+    StorageSettings,
+    make_client,
+    sha256_hex,
+    upload_verified,
+    verify_object,
+)
 from src.serving.predictor import ModelPredictor
 
 
@@ -32,12 +38,21 @@ def validate_and_write_manifest(
     expected_version: str | None = None,
     mlflow_run_id: str | None = None,
     git_sha: str | None = None,
+    expected_model_sha256: str | None = None,
+    expected_catalog_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Validate staged model + catalog artifacts and write staged-version.json."""
     model_file = Path(model_path)
     catalog_file = Path(catalog_path)
     model_bytes = _require_non_empty_file(model_file, "Model artifact")
     catalog_bytes = _require_non_empty_file(catalog_file, "Movie catalog")
+
+    for label, content, expected in (
+        ("Model", model_bytes, expected_model_sha256),
+        ("Catalog", catalog_bytes, expected_catalog_sha256),
+    ):
+        if expected and sha256_hex(content) != expected:
+            raise ValueError(f"{label} SHA-256 mismatch.")
 
     predictor = ModelPredictor(model_path=model_file, catalog_path=catalog_file)
     if not predictor.artifact_loaded or predictor.using_fallback:
@@ -86,6 +101,7 @@ def upload_serving_artifacts(
     catalog_key: str | None = None,
     client: Any = None,
     bucket: str | None = None,
+    reuse_verified: bool = False,
 ) -> dict[str, Any]:
     """Validate and upload immutable serving artifacts to Backblaze B2."""
     if bool(catalog_path) != bool(catalog_key):
@@ -107,7 +123,15 @@ def upload_serving_artifacts(
         client = client or make_client(settings)
         bucket = bucket or settings.bucket
 
-    model_result = upload_verified(
+    def publish(client, bucket, key, data, content_type):
+        try:
+            return upload_verified(client, bucket, key, data, content_type=content_type)
+        except FileExistsError:
+            if not reuse_verified:
+                raise
+            return verify_object(client, bucket, key, sha256_hex(data), len(data))
+
+    model_result = publish(
         client,
         bucket,
         model_key,
@@ -122,7 +146,7 @@ def upload_serving_artifacts(
     }
 
     if catalog_bytes is not None and catalog_key is not None:
-        summary["catalog"] = upload_verified(
+        summary["catalog"] = publish(
             client,
             bucket,
             catalog_key,
@@ -140,6 +164,11 @@ def _dispatch_deployment(summary: dict[str, Any], mlflow_run_id: str | None) -> 
     }
     if "catalog" in summary:
         inputs["catalog_key"] = summary["catalog"]["key"]
+    for field, artifact in (("model_sha256", "model"), ("catalog_sha256", "catalog")):
+        if summary.get(artifact, {}).get("sha256"):
+            inputs[field] = summary[artifact]["sha256"]
+    if summary.get("release_id"):
+        inputs["release_id"] = summary["release_id"]
     if mlflow_run_id:
         inputs["mlflow_run_id"] = mlflow_run_id
 
@@ -179,6 +208,8 @@ def main(argv: list[str] | None = None) -> None:
     validate_cmd.add_argument("--expected-version", default=None)
     validate_cmd.add_argument("--mlflow-run-id", default=None)
     validate_cmd.add_argument("--git-sha", default=None)
+    validate_cmd.add_argument("--expected-model-sha256", default=None)
+    validate_cmd.add_argument("--expected-catalog-sha256", default=None)
 
     upload_cmd = commands.add_parser(
         "upload",
@@ -193,6 +224,12 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Start the Oracle deployment after the upload is verified (requires gh).",
     )
+    upload_cmd.add_argument(
+        "--reuse-verified",
+        action="store_true",
+        help="Reuse existing objects only after full size/checksum verification.",
+    )
+    upload_cmd.add_argument("--release-id", default=None)
     upload_cmd.add_argument("--mlflow-run-id", help="MLflow run ID to record during deployment.")
 
     args = parser.parse_args(argv)
@@ -206,6 +243,8 @@ def main(argv: list[str] | None = None) -> None:
             expected_version=args.expected_version,
             mlflow_run_id=args.mlflow_run_id,
             git_sha=args.git_sha,
+            expected_model_sha256=args.expected_model_sha256,
+            expected_catalog_sha256=args.expected_catalog_sha256,
         )
         print(json.dumps(manifest, indent=2))
     else:
@@ -216,7 +255,10 @@ def main(argv: list[str] | None = None) -> None:
             args.model_key,
             catalog_path=args.catalog,
             catalog_key=args.catalog_key,
+            reuse_verified=args.reuse_verified,
         )
+        if args.release_id:
+            result["release_id"] = args.release_id
         print(json.dumps(result, indent=2), flush=args.deploy)
         if args.deploy:
             try:
