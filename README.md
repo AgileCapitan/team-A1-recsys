@@ -8,14 +8,15 @@ The application is deployed on an Oracle Cloud Infrastructure VM instance and or
 
 | Service | Access URL | Description |
 | :--- | :--- | :--- |
-| **Streamlit Web UI** | [http://92.5.11.34:8501](http://92.5.11.34:8501) | Interactive frontend for movie recommendations |
-| **FastAPI Swagger Docs** | [http://92.5.11.34:8000/docs](http://92.5.11.34:8000/docs) | Interactive API documentation & OpenAPI schema |
-| **Backend Health Check** | [http://92.5.11.34:8000/health](http://92.5.11.34:8000/health) | Live service status & loaded model version |
+| **Streamlit Web UI** | [https://team-a1-recsys.duckdns.org](https://team-a1-recsys.duckdns.org) | Interactive frontend for movie recommendations |
+| **FastAPI Swagger Docs** | [https://team-a1-recsys.duckdns.org/api/docs](https://team-a1-recsys.duckdns.org/api/docs) | Interactive API documentation & OpenAPI schema |
+| **Backend Health Check** | [https://team-a1-recsys.duckdns.org/api/health](https://team-a1-recsys.duckdns.org/api/health) | Live service status & loaded model version |
+| **MLflow Tracking UI** | [https://team-a1-recsys.duckdns.org/mlflow/](https://team-a1-recsys.duckdns.org/mlflow/) | Shared experiment tracking & artifact UI (Basic Auth) |
 
 ### Deployment Architecture
-- **Host Provider**: Oracle Cloud Infrastructure (Always Free VM)
-- **Public IP**: `92.5.11.34`
-- **Orchestration**: Docker Compose (`backend` + `frontend` multi-container stack)
+- **Host Provider**: Oracle Cloud Infrastructure (Always Free VM, `92.5.11.34`)
+- **Public Hostname**: `team-a1-recsys.duckdns.org` (HTTPS via Caddy reverse proxy)
+- **Orchestration**: Docker Compose (`caddy` + `backend` + `frontend` + `mlflow` multi-container stack)
 - **CI/CD Pipeline**: GitHub Actions auto-deployment on merge to `main` (`.github/workflows/deploy.yml`)
 
 ---
