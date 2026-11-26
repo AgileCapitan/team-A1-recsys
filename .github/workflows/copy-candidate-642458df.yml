@@ -1,0 +1,71 @@
+name: Copy verified MovieLens candidate to B2
+on:
+  push:
+    branches: [codex/copy-candidate-642458df]
+    paths: [.github/workflows/copy-candidate-642458df.yml]
+
+permissions: {}
+concurrency: copy-candidate-642458df
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUN_ID: 642458df9a7a4369a352845619dd0c09
+    steps:
+      - name: Install transfer clients
+        run: |
+          python3 -m venv "$RUNNER_TEMP/clients"
+          "$RUNNER_TEMP/clients/bin/pip" install --quiet 'mlflow-skinny==3.18.0' boto3
+      - name: Download the exact run artifact
+        env:
+          MLFLOW_TRACKING_URI: https://team-a1-recsys.duckdns.org/mlflow
+          MLFLOW_TRACKING_USERNAME: ${{ vars.MLFLOW_TRACKING_USERNAME || 'mlflow' }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          "$RUNNER_TEMP/clients/bin/python" - <<'PY'
+          import os, shutil
+          from pathlib import Path
+          from mlflow import MlflowClient
+          tmp = Path(os.environ["RUNNER_TEMP"])
+          client = MlflowClient()
+          run_id = os.environ["RUN_ID"]
+          assert client.get_run(run_id).info.status == "FINISHED"
+          path = client.download_artifacts(run_id, "model/movielens-v1.joblib", str(tmp))
+          shutil.copyfile(path, tmp / "candidate.joblib")
+          PY
+      - name: Copy to the run-specific B2 key and verify the stored bytes
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.B2_REGION }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          B2_ENDPOINT: ${{ vars.B2_ENDPOINT }}
+        run: |
+          "$RUNNER_TEMP/clients/bin/python" - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          import boto3
+          from botocore.exceptions import ClientError
+          bucket = "team-a1-recsys"
+          key = f"models/candidates/{os.environ['RUN_ID']}/movielens-v1.joblib"
+          content = (Path(os.environ["RUNNER_TEMP"]) / "candidate.joblib").read_bytes()
+          assert content
+          sha = hashlib.sha256(content).hexdigest()
+          client = boto3.client("s3", endpoint_url=os.environ["B2_ENDPOINT"])
+          def read():
+              return client.get_object(Bucket=bucket, Key=key)["Body"].read()
+          try:
+              saved = read()
+          except ClientError as error:
+              if error.response["Error"]["Code"] not in ("NoSuchKey", "404", "NotFound"):
+                  raise
+              client.put_object(Bucket=bucket, Key=key, Body=content,
+                                ContentType="application/octet-stream",
+                                Metadata={"sha256":sha, "mlflow-run-id":os.environ["RUN_ID"]})
+              saved = read()
+          if saved != content:
+              raise ValueError("The stored object differs from the source MLflow artifact")
+          print(f"Verified s3://{bucket}/{key} | {len(saved)} bytes | SHA-256 {sha}")
+          PY
