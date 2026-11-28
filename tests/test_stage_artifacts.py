@@ -227,3 +227,46 @@ def test_upload_command_reports_published_key_after_dispatch_failure(monkeypatch
     output = capsys.readouterr()
     assert json.loads(output.out) == summary
     assert "B2 upload verified" in output.err
+
+
+@pytest.mark.parametrize("artifact", ["model", "catalog"])
+def test_validate_checks_expected_bytes_before_loading_bundle(tmp_path, monkeypatch, artifact):
+    model = tmp_path / "model.joblib"
+    catalog = tmp_path / "catalog.csv"
+    model.write_bytes(b"untrusted bundle")
+    catalog.write_bytes(b"catalog")
+    load = Mock()
+    monkeypatch.setattr(stage_artifacts, "ModelPredictor", load)
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        validate_and_write_manifest(
+            model,
+            catalog,
+            model_key="models/model.joblib",
+            catalog_key="catalog.csv",
+            manifest_path=tmp_path / "manifest.json",
+            **{f"expected_{artifact}_sha256": "0" * 64},
+        )
+    load.assert_not_called()
+
+
+def test_dispatch_passes_checksums_and_correlation_id(monkeypatch):
+    run = Mock()
+    monkeypatch.setattr(stage_artifacts.subprocess, "run", run)
+    stage_artifacts._dispatch_deployment(
+        {
+            "model_version": "movielens-v1",
+            "release_id": "release-id",
+            "model": {"key": "models/immutable.joblib", "sha256": "a" * 64},
+            "catalog": {"key": "processed/v7/movies.csv", "sha256": "b" * 64},
+        },
+        "source-run",
+    )
+    assert json.loads(run.call_args.kwargs["input"]) == {
+        "model_key": "models/immutable.joblib",
+        "catalog_key": "processed/v7/movies.csv",
+        "expected_version": "movielens-v1",
+        "mlflow_run_id": "source-run",
+        "model_sha256": "a" * 64,
+        "catalog_sha256": "b" * 64,
+        "release_id": "release-id",
+    }
